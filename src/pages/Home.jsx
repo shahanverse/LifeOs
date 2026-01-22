@@ -2,13 +2,50 @@ import { useAuth } from "../context/AuthContext";
 import ProgressWheel from "../components/ProgressWheel";
 import { useEffect, useState } from "react";
 
+const ADMIN_HABITS_KEY = "lifeos_admin_habits";
+
 export default function Home() {
   const { user, updateUser } = useAuth();
   if (!user) return null;
 
   /* ---------------- USER ---------------- */
-  const habits = user.habits || [];
+  const rawHabits = user.habits || [];
+
+  // ✅ NORMALIZE OLD HABITS (CRITICAL FIX)
+  const habits = rawHabits.map((h) => ({
+    ...h,
+    source: h.source || "user",
+  }));
+
   const userName = user.email ? user.email.split("@")[0] : "User";
+
+  /* ---------------- SYNC ADMIN HABITS ---------------- */
+  useEffect(() => {
+    const adminHabits =
+      JSON.parse(localStorage.getItem(ADMIN_HABITS_KEY)) || [];
+
+    if (adminHabits.length === 0) return;
+
+    const missingAdminHabits = adminHabits.filter(
+      (adminHabit) =>
+        !habits.some((h) => h.source === "admin" && h.id === adminHabit.id),
+    );
+
+    if (missingAdminHabits.length === 0) return;
+
+    updateUser({
+      habits: [
+        ...habits,
+        ...missingAdminHabits.map((h) => ({
+          id: h.id,
+          name: h.name,
+          done: false,
+          source: "admin",
+        })),
+      ],
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   /* ---------------- GREETING ---------------- */
   const hour = new Date().getHours();
@@ -40,6 +77,7 @@ export default function Home() {
           id: Date.now(),
           name: newHabit,
           done: false,
+          source: "user",
         },
       ],
     });
@@ -74,7 +112,7 @@ export default function Home() {
 
       localStorage.setItem("lifeos_streak", JSON.stringify(newStreak));
     }
-  }, [completedHabits]);
+  }, [completedHabits, streakData.lastDate, todayKey]);
 
   const streak = JSON.parse(localStorage.getItem("lifeos_streak"))?.count || 0;
 
@@ -82,7 +120,6 @@ export default function Home() {
   const [focusTasks, setFocusTasks] = useState(
     JSON.parse(localStorage.getItem("lifeos_focus_tasks")) || [],
   );
-
   const [focusInput, setFocusInput] = useState("");
 
   useEffect(() => {
@@ -94,11 +131,7 @@ export default function Home() {
 
     setFocusTasks([
       ...focusTasks,
-      {
-        id: Date.now(),
-        text: focusInput,
-        done: false,
-      },
+      { id: Date.now(), text: focusInput, done: false },
     ]);
 
     setFocusInput("");
@@ -128,7 +161,7 @@ export default function Home() {
 
   useEffect(() => {
     localStorage.setItem(noteKey, dailyNote);
-  }, [dailyNote]);
+  }, [dailyNote, noteKey]);
 
   const today = new Date().toLocaleDateString("en-IN", {
     weekday: "long",
@@ -147,7 +180,7 @@ export default function Home() {
       </div>
 
       {/* QUICK STATS */}
-      <div className="grid grid-cols-2 md:grid-cols-4  gap-4 mb-8">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
         <Stat label="Habits" value={totalHabits} />
         <Stat label="Completed" value={completedHabits} />
         <Stat label="Focus Done" value={focusDone} />
@@ -163,7 +196,7 @@ export default function Home() {
           </p>
         </div>
 
-        <div className="md:col-span-2 bg-linear-to-br from-emerald-700 via-emerald-800  to-emerald-900 text-white p-6 rounded-2xl shadow">
+        <div className="md:col-span-2 bg-linear-to-br from-emerald-700 via-emerald-800 to-emerald-900 text-white p-6 rounded-2xl shadow">
           <h2 className="font-semibold mb-2">💡 Daily Motivation</h2>
           <p className="text-sm">Focus on what truly matters today.</p>
         </div>
@@ -175,7 +208,6 @@ export default function Home() {
         <textarea
           value={dailyNote}
           onChange={(e) => setDailyNote(e.target.value)}
-          placeholder="What’s important today?"
           rows={3}
           className="w-full border rounded-xl p-3"
         />
@@ -270,12 +302,14 @@ export default function Home() {
               </span>
             </div>
 
-            <button
-              onClick={() => deleteHabit(habit.id)}
-              className="text-red-500"
-            >
-              ✕
-            </button>
+            {habit.source !== "admin" && (
+              <button
+                onClick={() => deleteHabit(habit.id)}
+                className="text-red-500"
+              >
+                ✕
+              </button>
+            )}
           </div>
         ))}
       </div>
@@ -283,7 +317,7 @@ export default function Home() {
   );
 }
 
-/* ---------------- SMALL COMPONENT ---------------- */
+/* ---------------- STAT CARD ---------------- */
 function Stat({ label, value }) {
   return (
     <div className="bg-white rounded-2xl shadow p-4 text-center">
